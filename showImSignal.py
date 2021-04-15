@@ -1,6 +1,7 @@
 from matplotlib import pyplot as plt
 from imitationSignal import ImSignal, Radar, Target, SClutter
 from myfilter import Filter
+import csv, os
 
 radar = Radar(0.0025, 0.0003, 0.0022, 1500000, 200000000, "Rect", 4, 36)
 
@@ -15,8 +16,15 @@ fi1lter = Filter(0.0025, 0.1, isNormal = True)
 
 imSignal = ImSignal(radar, targetList, fi1lter)
 
-for i in range(10):
-	sweepRange = imSignal.main(i)
-	plt.plot(sweepRange)
-	plt.grid(True)
-	plt.show()
+with open('sweepRange.csv', 'w') as f:
+	f.truncate()
+
+with open('sweepRange.csv', 'r') as f:
+	imSignal.main(10)
+	sweep_reader = csv.reader(f)
+	for row in sweep_reader:
+		if row:
+			x = [i for i in range(len(row))]
+			plt.scatter(x, row)
+			plt.show()
+			break

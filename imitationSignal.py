@@ -40,13 +40,13 @@ class SClutter(Target):
 
 class CalcTargetSignal():
 
-	def __init__(self, target, radar, fi1ter, numTn):
+	def __init__(self, target, radar, fi1ter):
 		self.target = target
 		self.radar = radar
 		self.fi1ter = fi1ter
-		self.numTn = numTn
+		self.lastEl = self.targetFilter()
 
-	def calc(self):
+	def targetFilter(self):
 		if(self.target.R == "gaussian"):
 			gausfi1ter = list(self.fi1ter.gaussian(1000))
 			maxEl = max(gausfi1ter)
@@ -63,8 +63,11 @@ class CalcTargetSignal():
 			exp_parab_fi1ter = list(self.fi1ter.exponent_parabolic_2(1000))
 			maxEl = max(exp_parab_fi1ter)
 			lastEl = exp_parab_fi1ter[-1]/(2*maxEl)
-		a = np.real(lastEl)
-		b = np.imag(lastEl)
+		return lastEl
+
+	def calc(self, numTn):
+		a = np.real(self.lastEl)
+		b = np.imag(self.lastEl)
 		mod = np.sqrt(a**2 + b**2)
 		F = 0
 		if a > 0 and b > 0 : F = 0
@@ -73,16 +76,16 @@ class CalcTargetSignal():
 		if a > 0 and b < 0 : F = 0
 		currentPhase = np.arctan(b/a) + F
 		l = 300000000 / self.radar.Fz
-		doplerPhase = 4*np.pi*self.target.Vr/l*self.radar.Tn*self.numTn
+		doplerPhase = 4*np.pi*self.target.Vr/l*self.radar.Tn*numTn
 		totalPhase = currentPhase + doplerPhase
 		Re = mod*np.cos(totalPhase)
 		Im = mod*np.sin(totalPhase)
 		Amp = 10**(self.target.snr/20)
-		lastEl = np.complex(Re, Im)
-		return Amp * self.getAP() * lastEl
+		self.lastEl = np.complex(Re, Im)
+		return Amp * self.getAP(numTn) * self.lastEl
 
-	def getAP(self):
-		bettaA = self.radar.bettaA*self.numTn
+	def getAP(self, numTn):
+		bettaA = self.radar.bettaA*numTn
 		bettaT = self.target.B
 		return abs(np.sin(bettaA - bettaT)/(bettaA - bettaT))
 
@@ -96,25 +99,27 @@ class ImSignal:
 		self.sweepRange = np.zeros(4096, dtype = np.complex)
 
 
-	def main(self, k):
-		self.sweepRange = np.zeros(4096, dtype = np.complex)
-		dR = int(300000000 / (2 * self.radar.fs))
-		for target in self.targets:
-			if hasattr(target, 'Dfin'):
-				for i in range(0, int((target.Dfin - target.D)/dR)):
-					self.sweepRange[int((i+target.D)/dR)] = CalcTargetSignal(target, self.radar, self.fi1ter, k).calc()
-			else:
-				self.sweepRange[int(target.D/dR)] = CalcTargetSignal(target, self.radar, self.fi1ter, k).calc()
-		ImSignal.compress(self.sweepRange, self.radar.modLaw)
-		for j, i in enumerate(self.coldNoiseGen(4096)):
-			self.sweepRange[j] += i
-		ImSignal.saveRes(self.sweepRange)
-		return self.sweepRange
+	def main(self, count):
+			dR = int(300000000 / (2 * self.radar.fs))
+			calcTargetSignal = list()
+			for target in self.targets:
+				calcTargetSignal.append(CalcTargetSignal(target, self.radar, self.fi1ter))
+			for k in range(count):
+				self.sweepRange = np.zeros(4096, dtype = np.complex)
+				for obj in calcTargetSignal:
+					if hasattr(obj.target, 'Dfin'):
+						for i in range(0, int((obj.target.Dfin - obj.target.D)/dR)):
+							self.sweepRange[int((i+obj.target.D)/dR)] += obj.calc(k)
+					else:
+						self.sweepRange[int(obj.target.D/dR)] += obj.calc(k)
+				ImSignal.compress(self.sweepRange, self.radar.modLaw)
+				for j, i in enumerate(self.coldNoiseGen(4096)):
+					self.sweepRange[j] += i
+				ImSignal.saveRes(self.sweepRange)
 
 	def compress(sweepRange, modLaw):
 		fftSweepRange = np.fft.fft(sweepRange)
 		fftModLaw = np.fft.fft(modLaw)
-		print(fftSweepRange*fftModLaw)
 		return np.fft.rfft(fftSweepRange*fftModLaw)
 
 	def coldNoiseGen(self, count):
