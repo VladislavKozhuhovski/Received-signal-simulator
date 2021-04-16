@@ -100,27 +100,31 @@ class ImSignal:
 
 
 	def main(self, count):
-			dR = int(300000000 / (2 * self.radar.fs))
-			calcTargetSignal = list()
-			for target in self.targets:
-				calcTargetSignal.append(CalcTargetSignal(target, self.radar, self.fi1ter))
-			for k in range(count):
-				self.sweepRange = np.zeros(4096, dtype = np.complex)
-				for obj in calcTargetSignal:
-					if hasattr(obj.target, 'Dfin'):
-						for i in range(0, int((obj.target.Dfin - obj.target.D)/dR)):
-							self.sweepRange[int((i+obj.target.D)/dR)] += obj.calc(k)
-					else:
-						self.sweepRange[int(obj.target.D/dR)] += obj.calc(k)
-				ImSignal.compress(self.sweepRange, self.radar.modLaw)
-				for j, i in enumerate(self.coldNoiseGen(4096)):
-					self.sweepRange[j] += i
-				ImSignal.saveRes(self.sweepRange)
+		dR = int(300000000 / (2 * self.radar.fs))
+		calcTargetSignal = list()
+		setSweepRange = list()
+		for target in self.targets:
+			calcTargetSignal.append(CalcTargetSignal(target, self.radar, self.fi1ter))
+		for k in range(1, count+1):
+			self.sweepRange = np.zeros(4096, dtype = np.complex)
+			for obj in calcTargetSignal:
+				if hasattr(obj.target, 'Dfin'):
+					for i in range(0, int((obj.target.Dfin - obj.target.D)/dR)):
+						self.sweepRange[int((i+obj.target.D)/dR)] += obj.calc(k)
+				else:
+					self.sweepRange[int(obj.target.D/dR)] += obj.calc(k)
+			ImSignal.compress(self.sweepRange, self.radar.modLaw)
+			for j, i in enumerate(self.coldNoiseGen(4096)):
+				self.sweepRange[j] += i
+			ImSignal.saveRes(self.sweepRange)
+			setSweepRange.append(self.sweepRange)
+		return setSweepRange
+
 
 	def compress(sweepRange, modLaw):
 		fftSweepRange = np.fft.fft(sweepRange)
 		fftModLaw = np.fft.fft(modLaw)
-		return np.fft.rfft(fftSweepRange*fftModLaw)
+		return np.fft.ifft(fftSweepRange*fftModLaw)
 
 	def coldNoiseGen(self, count):
 		for i in range(count):
