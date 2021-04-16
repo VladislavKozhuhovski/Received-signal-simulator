@@ -65,7 +65,7 @@ class CalcTargetSignal():
 			lastEl = exp_parab_fi1ter[-1]/(2*maxEl)
 		return lastEl
 
-	def calc(self, numTn):
+	def calc(self, numTn, isClut = False, last = False):
 		a = np.real(self.lastEl)
 		b = np.imag(self.lastEl)
 		mod = np.sqrt(a**2 + b**2)
@@ -82,11 +82,14 @@ class CalcTargetSignal():
 		Im = mod*np.sin(totalPhase)
 		Amp = 10**(self.target.snr/20)
 		self.lastEl = np.complex(Re, Im)
-		return Amp * self.getAP(numTn) * self.lastEl
+		if last: return Amp * self.getAP(numTn, last = True) * self.lastEl
+		elif isClut: return Amp * self.lastEl
+		else: return Amp * self.getAP(numTn) * self.lastEl
 
-	def getAP(self, numTn):
+	def getAP(self, numTn, last = False):
+		if last: bettaT = self.target.Bfin
+		else: bettaT = self.target.B
 		bettaA = self.radar.bettaA*numTn
-		bettaT = self.target.B
 		return abs(np.sin(bettaA - bettaT)/(bettaA - bettaT))
 
 # Имитация отражённого от целей сигнала используя зарание заданные параметры целей и РЛС
@@ -110,7 +113,9 @@ class ImSignal:
 			for obj in calcTargetSignal:
 				if hasattr(obj.target, 'Dfin'):
 					for i in range(0, int((obj.target.Dfin - obj.target.D)/dR)):
-						self.sweepRange[int((i+obj.target.D)/dR)] += obj.calc(k)
+						if i == 0: self.sweepRange[int((i+obj.target.D)/dR)] += obj.calc(k)
+						elif i == int((obj.target.Dfin - obj.target.D)/dR)-1 : self.sweepRange[int((i+obj.target.D)/dR)] += obj.calc(k, last = True)
+						else : self.sweepRange[int((i+obj.target.D)/dR)] += obj.calc(k, isClut = True)
 				else:
 					self.sweepRange[int(obj.target.D/dR)] += obj.calc(k)
 			ImSignal.compress(self.sweepRange, self.radar.modLaw)
