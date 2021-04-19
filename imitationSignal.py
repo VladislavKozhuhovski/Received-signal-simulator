@@ -24,16 +24,20 @@ class Target:
 
 	def __init__(self, snr, Vr, D, R, tr, B):
 		self.snr = snr
+		self.type = 0
 		self.Vr = Vr
 		self.D = D
+		self.Dfin = D
 		self.R = R
 		self.tr = tr
 		self.B = B
+		self.Bfin = B
 
 class SClutter(Target):
 
 	def __init__(self, snr, Vr, D_start, D_finish, R, tr, B_start, B_finish):
 		super().__init__(snr, Vr, D_start, R, tr, B_start)
+		self.type = 1
 		self.Dfin = D_finish
 		self.Bfin = B_finish
 
@@ -87,10 +91,16 @@ class CalcTargetSignal():
 		else: return Amp * self.getAP(numTn) * self.lastEl
 
 	def getAP(self, numTn, last = False):
-		if last: bettaT = self.target.Bfin
-		else: bettaT = self.target.B
-		bettaA = self.radar.bettaA*numTn
-		return abs(np.sin(bettaA - bettaT)/(bettaA - bettaT))
+		bettaA = self.radar.bettaA*numTn % 360
+		Bstart = self.target.B
+		Bfin = self.target.Bfin
+		if Bstart > Bfin:
+			if bettaA > Bstart && bettaA > Bfin or bettaA < Bstart && bettaA < Bfin: return 1
+		if bettaA < Bstart or bettaA > Bfin:
+			Amin = min(abs(bettaA - Bstart), abs(bettaA - Bfin))
+			return abs(np.sin(Amin)/Amin)
+		else:
+			return 1
 
 # Имитация отражённого от целей сигнала используя зарание заданные параметры целей и РЛС
 class ImSignal:
