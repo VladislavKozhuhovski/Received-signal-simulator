@@ -24,7 +24,6 @@ class Target:
 
 	def __init__(self, snr, Vr, D, R, tr, B):
 		self.snr = snr
-		self.type = 0
 		self.Vr = Vr
 		self.D = D
 		self.Dfin = D
@@ -37,7 +36,6 @@ class SClutter(Target):
 
 	def __init__(self, snr, Vr, D_start, D_finish, R, tr, B_start, B_finish):
 		super().__init__(snr, Vr, D_start, R, tr, B_start)
-		self.type = 1
 		self.Dfin = D_finish
 		self.Bfin = B_finish
 
@@ -54,49 +52,51 @@ class CalcTargetSignal():
 		if(self.target.R == "gaussian"):
 			gausfi1ter = list(self.fi1ter.gaussian(1000))
 			maxEl = max(gausfi1ter)
-			lastEl = gausfi1ter[-1]/(2*maxEl)
+			lastEl = gausfi1ter[-1]*2/(maxEl)
 		if(self.target.R == "exponential"):
 			expfi1ter = list(self.fi1ter.exponential(1000))
 			maxEl = max(expfi1ter)
-			lastEl = expfi1ter[-1]/(2*maxEl)
+			lastEl = expfi1ter[-1]*2/(maxEl)
 		if(self.target.R == "exponent_parabolic_1"):
 			exp_parab_fi1ter = list(self.fi1ter.exponent_parabolic_1(1000))
 			maxEl = max(exp_parab_fi1ter)
-			lastEl = exp_parab_fi1ter[-1]/(2*maxEl)
+			lastEl = exp_parab_fi1ter[-1]*2/(maxEl)
 		if(self.target.R == "exponent_parabolic_2"):
 			exp_parab_fi1ter = list(self.fi1ter.exponent_parabolic_2(1000))
 			maxEl = max(exp_parab_fi1ter)
-			lastEl = exp_parab_fi1ter[-1]/(2*maxEl)
+			lastEl = exp_parab_fi1ter[-1]*2/(maxEl)
 		return lastEl
 
-	def calc(self, numTn, isClut = False, last = False):
-		a = np.real(self.lastEl)
-		b = np.imag(self.lastEl)
-		mod = np.sqrt(a**2 + b**2)
-		F = 0
-		if a > 0 and b > 0 : F = 0
-		if a < 0 and b > 0 : F = np.pi
-		if a < 0 and b < 0 : F = -np.pi
-		if a > 0 and b < 0 : F = 0
-		currentPhase = np.arctan(b/a) + F
-		l = 300000000 / self.radar.Fz
-		doplerPhase = 4*np.pi*self.target.Vr/l*self.radar.Tn*numTn
-		totalPhase = currentPhase + doplerPhase
-		Re = mod*np.cos(totalPhase)
-		Im = mod*np.sin(totalPhase)
-		Amp = 10**(self.target.snr/20)
-		self.lastEl = np.complex(Re, Im)
-		if last: return Amp * self.getAP(numTn, last = True) * self.lastEl
-		elif isClut: return Amp * self.lastEl
-		else: return Amp * self.getAP(numTn) * self.lastEl
+	def calc(self, numTn, isClut = False):
+		listFilter = list()
+		dR = int(300000000 / (2 * self.radar.fs))
+		for i in range(int((self.target.Dfin - self.target.D)/dR) + 1):
+			a = np.real(self.lastEl)
+			b = np.imag(self.lastEl)
+			mod = np.sqrt(a**2 + b**2)
+			F = 0
+			if a > 0 and b > 0 : F = 0
+			if a < 0 and b > 0 : F = np.pi
+			if a < 0 and b < 0 : F = -np.pi
+			if a > 0 and b < 0 : F = 0
+			currentPhase = np.arctan(b/a) + F
+			l = 300000000 / self.radar.Fz
+			doplerPhase = 4*np.pi*self.target.Vr/l*self.radar.Tn*numTn
+			totalPhase = currentPhase + doplerPhase
+			Re = mod*np.cos(totalPhase)
+			Im = mod*np.sin(totalPhase)
+			Amp = 10**(self.target.snr/20)
+			self.lastEl = np.complex(Re, Im)
+			listFilter.append(Amp * self.getAP(numTn) * self.lastEl)
+		return listFilter
 
-	def getAP(self, numTn, last = False):
+	def getAP(self, numTn):
 		bettaA = self.radar.bettaA*numTn % 360
 		Bstart = self.target.B
 		Bfin = self.target.Bfin
 		if Bstart > Bfin:
-			if bettaA > Bstart && bettaA > Bfin or bettaA < Bstart && bettaA < Bfin: return 1
-		if bettaA < Bstart or bettaA > Bfin:
+			if (bettaA > Bstart and bettaA > Bfin) or (bettaA < Bstart and bettaA < Bfin): return 1
+		if ((bettaA < Bstart) or (bettaA > Bfin)) and (bettaA != Bstart and bettaA != Bfin):
 			Amin = min(abs(bettaA - Bstart), abs(bettaA - Bfin))
 			return abs(np.sin(Amin)/Amin)
 		else:
@@ -114,20 +114,16 @@ class ImSignal:
 
 	def main(self, count):
 		dR = int(300000000 / (2 * self.radar.fs))
-		calcTargetSignal = list()
 		setSweepRange = list()
-		for target in self.targets:
-			calcTargetSignal.append(CalcTargetSignal(target, self.radar, self.fi1ter))
 		for k in range(1, count+1):
 			self.sweepRange = np.zeros(4096, dtype = np.complex)
+			calcTargetSignal = list()
+			for target in self.targets:
+				calcTargetSignal.append(CalcTargetSignal(target, self.radar, self.fi1ter))
 			for obj in calcTargetSignal:
-				if hasattr(obj.target, 'Dfin'):
-					for i in range(0, int((obj.target.Dfin - obj.target.D)/dR)):
-						if i == 0: self.sweepRange[int((i+obj.target.D)/dR)] += obj.calc(k)
-						elif i == int((obj.target.Dfin - obj.target.D)/dR)-1 : self.sweepRange[int((i+obj.target.D)/dR)] += obj.calc(k, last = True)
-						else : self.sweepRange[int((i+obj.target.D)/dR)] += obj.calc(k, isClut = True)
-				else:
-					self.sweepRange[int(obj.target.D/dR)] += obj.calc(k)
+				listCalc = obj.calc(k)
+				for i in range(len(listCalc)):
+					self.sweepRange[int(i + obj.target.D/dR)] += listCalc[i]
 			ImSignal.compress(self.sweepRange, self.radar.modLaw)
 			for j, i in enumerate(self.coldNoiseGen(4096)):
 				self.sweepRange[j] += i

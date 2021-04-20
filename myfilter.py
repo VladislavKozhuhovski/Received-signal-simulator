@@ -47,7 +47,7 @@ class Filter:
 				continue
 			else: 
 				p = j
-				print("p = " + str(j))
+				#print("p = " + str(j))
 				break
 		if self.isNormal == True: x = [self._normal_distribution() for i in range(count + p)]
 		else: x = [self._uniform_distribution() for i in range(count + p)]
