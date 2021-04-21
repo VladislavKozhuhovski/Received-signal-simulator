@@ -62,6 +62,7 @@ class Filter:
 
 	# Экспоненциальный фильтр
 	def exponential(self, count):
+		if count == None: count = 1
 		y = np.zeros(count, dtype=np.complex)
 		a0 = np.sqrt(2*self.t)*self.Tn/(self.Tn+self.t)
 		b0 = self.t/(self.Tn+self.t)
@@ -76,6 +77,7 @@ class Filter:
 
 	# Экспоненциально-параболический фильтр первая реализация
 	def exponent_parabolic_1(self, count):
+		if count == None: count = 1
 		res = np.zeros(count, dtype=np.complex)
 		alfa = 2/self.t
 		gamma = alfa*self.Tn
@@ -98,6 +100,7 @@ class Filter:
 
 	# Экспоненциально-параболический фильтр вторая реализация
 	def exponent_parabolic_2(self, count):
+		if count == None: count = 1
 		res = np.zeros(count, dtype=np.complex)
 		p = 2*self.Tn+self.t
 		b2 = -self.t**2/p**2

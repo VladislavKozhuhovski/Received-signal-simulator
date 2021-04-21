@@ -32,6 +32,7 @@ class Target:
 		self.B = B
 		self.Bfin = B
 
+# Задание параметров мешающего отражения
 class SClutter(Target):
 
 	def __init__(self, snr, Vr, D_start, D_finish, R, tr, B_start, B_finish):
@@ -39,40 +40,49 @@ class SClutter(Target):
 		self.Dfin = D_finish
 		self.Bfin = B_finish
 
-
 class CalcTargetSignal():
 
-	def __init__(self, target, radar, fi1ter):
+	def __init__(self, target, radar, fi1ter, count):
 		self.target = target
 		self.radar = radar
 		self.fi1ter = fi1ter
-		self.lastEl = self.targetFilter()
+		self.dR = int(300000000 / (2 * self.radar.fs))
+		self.targetfi1ter = list()
+		self.maxEl = 0
+		self.targetR = self.targetFilter(count)
 
-	def targetFilter(self):
+	# Функция возвращающая генератор отражённого сигнала от цели
+	def targetFilter(self, count):
+		def targetGen(i=0):
+			size = int((self.target.Dfin - self.target.D)/self.dR) + 1
+			buffer = list(map(lambda x: x*2/self.maxEl , self.targetfi1ter[-(1+i):-(size+i+1):-1]))
+			i += size
+			yield buffer
 		if(self.target.R == "gaussian"):
-			gausfi1ter = list(self.fi1ter.gaussian(1000))
-			maxEl = max(gausfi1ter)
-			lastEl = gausfi1ter[-1]*2/(maxEl)
+			self.targetfi1ter = list(self.fi1ter.gaussian(1000 + count*(int((self.target.Dfin - self.target.D)/self.dR) + 1)))
+			self.maxEl = max(self.targetfi1ter)
+			return targetGen
 		if(self.target.R == "exponential"):
-			expfi1ter = list(self.fi1ter.exponential(1000))
-			maxEl = max(expfi1ter)
-			lastEl = expfi1ter[-1]*2/(maxEl)
+			self.targetfi1ter = list(self.fi1ter.exponential(1000 + count*(int((self.target.Dfin - self.target.D)/self.dR) + 1)))
+			self.maxEl = max(self.targetfi1ter)
+			return targetGen
 		if(self.target.R == "exponent_parabolic_1"):
-			exp_parab_fi1ter = list(self.fi1ter.exponent_parabolic_1(1000))
-			maxEl = max(exp_parab_fi1ter)
-			lastEl = exp_parab_fi1ter[-1]*2/(maxEl)
+			self.targetfi1ter = list(self.fi1ter.exponent_parabolic_1(1000 + count*(int((self.target.Dfin - self.target.D)/self.dR) + 1)))
+			self.maxEl = max(self.targetfi1ter)
+			return targetGen
 		if(self.target.R == "exponent_parabolic_2"):
-			exp_parab_fi1ter = list(self.fi1ter.exponent_parabolic_2(1000))
-			maxEl = max(exp_parab_fi1ter)
-			lastEl = exp_parab_fi1ter[-1]*2/(maxEl)
-		return lastEl
+			self.targetfi1ter = list(self.fi1ter.exponent_parabolic_2(1000 + count*(int((self.target.Dfin - self.target.D)/self.dR) + 1)))
+			self.maxEl = max(self.targetfi1ter)
+			return targetGen
 
+	# Функция рассчитывающая отражённый сигнал от цели учитывая поправку Доплера и ДНА
 	def calc(self, numTn, isClut = False):
 		listFilter = list()
-		dR = int(300000000 / (2 * self.radar.fs))
-		for i in range(int((self.target.Dfin - self.target.D)/dR) + 1):
-			a = np.real(self.lastEl)
-			b = np.imag(self.lastEl)
+		targetSignalBuff = next(self.targetR())
+		doplerPhase = self.doplerPhase(numTn)
+		for i in range(len(targetSignalBuff)):
+			a = np.real(targetSignalBuff[i])
+			b = np.imag(targetSignalBuff[i])
 			mod = np.sqrt(a**2 + b**2)
 			F = 0
 			if a > 0 and b > 0 : F = 0
@@ -80,16 +90,21 @@ class CalcTargetSignal():
 			if a < 0 and b < 0 : F = -np.pi
 			if a > 0 and b < 0 : F = 0
 			currentPhase = np.arctan(b/a) + F
-			l = 300000000 / self.radar.Fz
-			doplerPhase = 4*np.pi*self.target.Vr/l*self.radar.Tn*numTn
 			totalPhase = currentPhase + doplerPhase
 			Re = mod*np.cos(totalPhase)
 			Im = mod*np.sin(totalPhase)
 			Amp = 10**(self.target.snr/20)
 			self.lastEl = np.complex(Re, Im)
-			listFilter.append(Amp * self.getAP(numTn) * self.lastEl)
+			listFilter.append(Amp * self.getAP(numTn) * targetSignalBuff[i])
 		return listFilter
 
+	# Функция расчёта поправки Доплера для каждого периода повторений
+	def doplerPhase(self, numTn):
+		l = 300000000 / self.radar.Fz
+		doplerPhase = 4*np.pi*self.target.Vr/l*self.radar.Tn*numTn
+		return doplerPhase
+
+	# Функция возвращающая ДНА для каждого периода повторений
 	def getAP(self, numTn):
 		bettaA = self.radar.bettaA*numTn % 360
 		Bstart = self.target.B
@@ -111,15 +126,15 @@ class ImSignal:
 		self.fi1ter = fi1ter
 		self.sweepRange = np.zeros(4096, dtype = np.complex)
 
-
+	# Основная функция расчёта развёртки дальности, для каждого периода повторений.
 	def main(self, count):
 		dR = int(300000000 / (2 * self.radar.fs))
 		setSweepRange = list()
+		calcTargetSignal = list()
+		for target in self.targets:
+			calcTargetSignal.append(CalcTargetSignal(target, self.radar, self.fi1ter, count))
 		for k in range(1, count+1):
 			self.sweepRange = np.zeros(4096, dtype = np.complex)
-			calcTargetSignal = list()
-			for target in self.targets:
-				calcTargetSignal.append(CalcTargetSignal(target, self.radar, self.fi1ter))
 			for obj in calcTargetSignal:
 				listCalc = obj.calc(k)
 				for i in range(len(listCalc)):
@@ -131,18 +146,20 @@ class ImSignal:
 			setSweepRange.append(self.sweepRange)
 		return setSweepRange
 
-
+	# Функция сжатия развёртки дальности и закона модуляции РЛС
 	def compress(sweepRange, modLaw):
 		fftSweepRange = np.fft.fft(sweepRange)
 		fftModLaw = np.fft.fft(modLaw)
 		return np.fft.ifft(fftSweepRange*fftModLaw)
 
+	# Генератор внутренних шумов принимающего устройства РЛС
 	def coldNoiseGen(self, count):
 		for i in range(count):
 			Re = np.random.normal(0, self.radar.disp)
 			Im = np.random.normal(0, self.radar.disp)
 			yield np.complex(Re,Im)
 
+	# Сохранение результатов расчёта развёртки дальности для каждого периода повторений в файл
 	def saveRes(sweepRange):
 		with open("sweepRange.csv", "a") as f:
 			writer = csv.writer(f)
