@@ -11,8 +11,10 @@ class Radar:
 		self.fs = fs
 		self.Fz = Fz
 		self.disp = 1
-		#self.Tc = Tc
-		self.modLaw = np.zeros(4096, dtype = np.complex)
+		self.dR = int(300000000 / (2 * fs))
+		self.Rmax = int(300000000 * ( Tws + ti)/self.dR/2)
+		print ("Rmax = " + str(self.Rmax))
+		self.modLaw = np.zeros(self.Rmax, dtype = np.complex)
 		self.speed = speed
 		self.bettaA = Tn*speed
 		if(modLaw == "Rect"):
@@ -46,7 +48,7 @@ class CalcTargetSignal():
 		self.target = target
 		self.radar = radar
 		self.fi1ter = fi1ter
-		self.dR = int(300000000 / (2 * self.radar.fs))
+		self.dR = radar.dR
 		self.targetfi1ter = list()
 		self.maxEl = 0
 		self.targetR = self.targetFilter(count)
@@ -124,23 +126,22 @@ class ImSignal:
 		self.radar = radar
 		self.targets = targets
 		self.fi1ter = fi1ter
-		self.sweepRange = np.zeros(4096, dtype = np.complex)
+		self.sweepRange = np.zeros(self.radar.Rmax, dtype = np.complex)
 
 	# Основная функция расчёта развёртки дальности, для каждого периода повторений.
 	def main(self, count):
-		dR = int(300000000 / (2 * self.radar.fs))
 		setSweepRange = list()
 		calcTargetSignal = list()
 		for target in self.targets:
 			calcTargetSignal.append(CalcTargetSignal(target, self.radar, self.fi1ter, count))
 		for k in range(1, count+1):
-			self.sweepRange = np.zeros(4096, dtype = np.complex)
+			self.sweepRange = np.zeros(self.radar.Rmax, dtype = np.complex)
 			for obj in calcTargetSignal:
 				listCalc = obj.calc(k)
 				for i in range(len(listCalc)):
-					self.sweepRange[int(i + obj.target.D/dR)] += listCalc[i]
+					self.sweepRange[int(i + obj.target.D/self.radar.dR)] += listCalc[i]
 			ImSignal.compress(self.sweepRange, self.radar.modLaw)
-			for j, i in enumerate(self.coldNoiseGen(4096)):
+			for j, i in enumerate(self.coldNoiseGen(self.radar.Rmax)):
 				self.sweepRange[j] += i
 			ImSignal.saveRes(self.sweepRange)
 			setSweepRange.append(self.sweepRange)
