@@ -42,7 +42,7 @@ class Filter:
 				#ck[i] = self.mean/(np.sqrt(np.pi*gamma)*np.sin(gamma*i)/i)
 				sumCk += ck[i]**2
 			if (abs(1-1/self.disp*sumCk) >= error): 
-				print("Error = " + str(abs(1-1/self.disp*sumCk)))
+				#print("Error = " + str(abs(1-1/self.disp*sumCk)))
 				if j == n-1: raise ValueError("Gaussian filter couldn't find the correct p")
 				continue
 			else: 
