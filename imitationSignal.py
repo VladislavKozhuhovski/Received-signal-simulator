@@ -23,7 +23,7 @@ import csv
 """
 class Radar:
 
-	def __init__(self, Tn, ti, Tws, fs, Fz, modLaw, disp, speed, P, Gt):
+	def __init__(self, Tn, ti, Tws, fs, Fz, modLaw, dF, speed, P, Gt):
 		self.Tn = Tn
 		self.ti = ti
 		self.Tws = Tws
@@ -31,8 +31,8 @@ class Radar:
 		self.Fz = Fz
 		self.P = P
 		self.Gt = Gt
-		self.Gr = 40000/70
-		self.disp = 1
+		self.Gr = Gt
+		self.dF = dF
 		self.dR = int(300000000 / (2 * fs))
 		self.Rmax = int(300000000 * ( Tws + ti)/self.dR/2)
 		self.modLaw = np.zeros(self.Rmax, dtype = np.complex)
@@ -46,10 +46,10 @@ class Radar:
 			self.Fdev = Fdev
 			length = int(ti*fs+0.5)
 			dt = 1/fs
-			for i in range(len(modLaw)):
+			for i in range(len(self.modLaw)):
 				if i in range(length):
 					t = -ti/2+i*dt
-					frequency = 2 * np.pi * (abs(Fdev)*(t-t*t)/(2*ti))
+					frequency = 2 * np.pi * (abs(Fdev) / (2 * ti) *t**2)
 					self.modLaw[i] = np.complex(np.cos(frequency), np.sin(frequency))
 				else:
 					self.modLaw[i] = np.complex(0, 0)
@@ -118,36 +118,49 @@ class CalcTargetSignal():
 		self.dR = radar.dR
 		self.targetfi1ter = list()
 		self.maxEl = 0
-		self.targetR = self.targetFilter(count)
+		self.counter = 0
+		self.count = count
+		self.size = int((self.target.Dfin - self.target.D)/self.dR) + 1
+		self.targetGen = list()
+		for i in range(self.size):
+			self.targetGen.append(self.targetFilterGen)
 
 	# Функция возвращающая генератор отражённого сигнала от цели
-	def targetFilter(self, count):
-		def targetGen(i=0):
-			size = int((self.target.Dfin - self.target.D)/self.dR) + 1
-			buffer = list(map(lambda x: x*2/self.maxEl , self.targetfi1ter[-(1+i):-(size+i+1):-1]))
-			i += size
-			yield buffer
+	def targetFilterGen(self):
 		if(self.target.R == "gaussian"):
-			self.targetfi1ter = list(self.fi1ter.gaussian(1000 + count*(int((self.target.Dfin - self.target.D)/self.dR) + 1)))
+			self.targetfi1ter = list(self.fi1ter.gaussian(1000 + self.count))
 			self.maxEl = max(self.targetfi1ter)
-			return targetGen
+			buffer = list(map(lambda x: x*2/self.maxEl , self.targetfi1ter))
+			for i in range(0,self.count):
+				yield buffer[-(1+i)]
 		if(self.target.R == "exponential"):
-			self.targetfi1ter = list(self.fi1ter.exponential(1000 + count*(int((self.target.Dfin - self.target.D)/self.dR) + 1)))
+			self.targetfi1ter = list(self.fi1ter.exponential(1000 + self.count))
 			self.maxEl = max(self.targetfi1ter)
-			return targetGen
+			buffer = list(map(lambda x: x*2/self.maxEl , self.targetfi1ter))
+			for i in range(0,self.count):
+				yield buffer[-(1+i)]
 		if(self.target.R == "exponent_parabolic_1"):
-			self.targetfi1ter = list(self.fi1ter.exponent_parabolic_1(1000 + count*(int((self.target.Dfin - self.target.D)/self.dR) + 1)))
+			self.targetfi1ter = list(self.fi1ter.exponent_parabolic_1(1000 + self.count))
 			self.maxEl = max(self.targetfi1ter)
-			return targetGen
+			buffer = list(map(lambda x: x*2/self.maxEl , self.targetfi1ter))
+			for i in range(0,self.count):
+				yield buffer[-(1+i)]
 		if(self.target.R == "exponent_parabolic_2"):
-			self.targetfi1ter = list(self.fi1ter.exponent_parabolic_2(1000 + count*(int((self.target.Dfin - self.target.D)/self.dR) + 1)))
+			self.targetfi1ter = list(self.fi1ter.exponent_parabolic_2(1000 + self.count))
 			self.maxEl = max(self.targetfi1ter)
-			return targetGen
+			buffer = list(map(lambda x: x*2/self.maxEl , self.targetfi1ter))
+			for i in range(0,self.count):
+				yield buffer[-(1+i)]
 
 	# Функция рассчитывающая отражённый сигнал от цели учитывая поправку Доплера и ДНА
 	def calc(self, numTn, isClut = False):
 		listFilter = list()
-		targetSignalBuff = next(self.targetR())
+		targetSignalBuff = list()
+		for i in range(len(self.targetGen)):
+			targetSignalBuff.append(next(self.targetGen[i]()))
+		print(targetSignalBuff)
+		self.counter += 1
+		print("Counter = " + str(self.counter))
 		doplerPhase = self.doplerPhase(numTn)
 		for i in range(len(targetSignalBuff)):
 			a = np.real(targetSignalBuff[i])
@@ -167,7 +180,7 @@ class CalcTargetSignal():
 			P = self.radar.P*self.radar.Gt*self.radar.Gr*self.target.esa*(300000000/self.radar.Fz)/((4*np.pi)**3*(self.target.D+i)**4)
 			Amp = np.sqrt(P)
 			self.lastEl = np.complex(Re, Im)
-			listFilter.append(Amp * self.getAP(numTn) * targetSignalBuff[i])
+			listFilter.append(Amp * self.getAP(numTn) * self.lastEl)
 		return listFilter
 
 	# Функция расчёта поправки Доплера для каждого периода повторений
@@ -217,7 +230,7 @@ class ImSignal:
 				listCalc = obj.calc(k)
 				for i in range(len(listCalc)):
 					self.sweepRange[int(i + obj.target.D/self.radar.dR)] += listCalc[i]
-			ImSignal.compress(self.sweepRange, self.radar.modLaw)
+			self.sweepRange = ImSignal.compress(self.sweepRange, self.radar.modLaw)
 			for j, i in enumerate(self.coldNoiseGen(self.radar.Rmax)):
 				self.sweepRange[j] += i
 			ImSignal.saveRes(self.sweepRange)
@@ -234,8 +247,8 @@ class ImSignal:
 	def coldNoiseGen(self, count):
 		k = 1.38*10**(-23)
 		T = 300
-		Bn = 4
-		Amp = Bn*T*k
+		k_noise = 4
+		Amp = np.sqrt(self.radar.dF*T*k*k_noise)
 		for i in range(count):
 			# при расчёте через соотношение сигнал/шум
 			#------------------------------------------
@@ -244,8 +257,8 @@ class ImSignal:
 			#------------------------------------------
 			# при расчёте через основную формулу радиолокации
 			#------------------------------------------
-			Re = np.random.normal(0, Amp)
-			Im = np.random.normal(0, Amp)
+			Re = np.random.normal(0, Amp / 3)
+			Im = np.random.normal(0, Amp / 3)
 			#------------------------------------------
 			yield np.complex(Re,Im)
 
